@@ -43,4 +43,5 @@ workflow still declares `pages: write` and `id-token: write`.
 
 ## Requirements
 
-Node 22 or newer. The workflow uses Node 24 from `withastro/action`.
+Node 22.12 or newer — that is the floor Astro 7.3.8 declares in its `engines`
+field. The workflow uses Node 24, the default in `withastro/action`.

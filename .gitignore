@@ -11,9 +11,9 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# environment
-.env
-.env.production
+# environment — never commit real values. `.env.example` stays tracked as a template.
+.env*
+!.env.example
 
 # macOS
 .DS_Store

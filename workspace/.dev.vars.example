@@ -1,0 +1,6 @@
+# Copy to .dev.vars for `npm run dev`. Never commit real values.
+GITHUB_TOKEN=
+CLOUDFLARE_API_TOKEN=
+CLOUDFLARE_ACCOUNT_ID=
+# Local only: skips the Cloudflare Access check.
+ALLOW_UNAUTHENTICATED=true

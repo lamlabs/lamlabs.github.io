@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Workspace</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side" id="side">
+    <div class="brand">Workspace</div>
+    <section>
+      <div class="side-head"><span>Sessions</span><button class="link" id="new-session" type="button">+ New</button></div>
+      <ul id="sessions" class="list"></ul>
+    </section>
+    <section>
+      <div class="side-head"><span>Projects</span></div>
+      <ul id="projects" class="list"></ul>
+    </section>
+  </aside>
+  <main id="main"><p class="dim pad">Pick a project or a session.</p></main>
+</div>
+
+<dialog id="new-dialog">
+  <form method="dialog" id="new-form">
+    <h2>New Claude Code session</h2>
+    <label>Project <select name="project" required></select></label>
+    <label>Name <input name="name" placeholder="defaults to the project name"></label>
+    <label>First prompt <textarea name="prompt" rows="4" placeholder="optional"></textarea></label>
+    <p class="error" id="new-error"></p>
+    <div class="row end">
+      <button value="cancel" formnovalidate type="submit" class="ghost">Cancel</button>
+      <button value="start" type="submit">Start</button>
+    </div>
+  </form>
+</dialog>
+<script type="module" src="app.js"></script>
+</body>
+</html>

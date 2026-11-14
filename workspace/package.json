@@ -1,23 +1,13 @@
 {
   "name": "workspace",
-  "type": "module",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "engines": {
-    "node": ">=22"
-  },
+  "type": "module",
+  "description": "Local dashboard for Claude Code sessions, projects, and their GitHub status.",
+  "engines": { "node": ">=22" },
+  "bin": { "workspace": "server.mjs" },
   "scripts": {
-    "dev": "wrangler dev",
-    "check": "tsc --noEmit",
-    "test": "vitest run",
-    "build": "wrangler deploy --dry-run --outdir dist",
-    "verify": "npm run check && npm test && npm run build",
-    "deploy": "wrangler deploy"
-  },
-  "devDependencies": {
-    "@cloudflare/workers-types": "^5.20261114.1",
-    "typescript": "^5.9.0",
-    "vitest": "^5.1.0",
-    "wrangler": "^4.162.0"
+    "start": "node server.mjs",
+    "test": "node --test test/*.test.mjs"
   }
 }

@@ -21,6 +21,21 @@ function describeTool(block) {
 }
 
 /**
+ * Claude Code puts its own notes into the transcript as user messages wrapped in
+ * a tag, e.g. <task-notification>. Returns a one-line summary, null to drop the
+ * note, or undefined when the text is a real user message.
+ */
+function systemNote(text) {
+  const m = text.trimStart().match(/^<([a-z][a-z0-9-]*)>/);
+  if (!m) return undefined;
+  if (m[1] === 'task-notification') {
+    const summary = text.match(/<summary>([\s\S]*?)<\/summary>/)?.[1]?.trim();
+    return summary ? `Background task: ${summary}` : 'Background task finished';
+  }
+  return null;
+}
+
+/**
  * Turn a Claude Code transcript (.jsonl text) into chat messages:
  * { role: 'user' | 'assistant' | 'tool', text, at }.
  * Tool results, thinking and bookkeeping entries are left out.
@@ -39,7 +54,9 @@ export function parseTranscript(jsonl) {
     const content = d.message?.content;
     const at = d.timestamp ?? null;
     if (typeof content === 'string') {
-      if (content.trim()) out.push({ role: d.type, text: content, at });
+      const sys = systemNote(content);
+      if (sys !== undefined) { if (sys) out.push({ role: 'tool', text: sys, at }); }
+      else if (content.trim()) out.push({ role: d.type, text: content, at });
       continue;
     }
     if (!Array.isArray(content)) continue;

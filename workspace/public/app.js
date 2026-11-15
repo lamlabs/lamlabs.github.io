@@ -3,16 +3,18 @@ const TOKEN = document.querySelector('meta[name="workbench-token"]').content;
 const $ = (id) => document.getElementById(id);
 const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-const STATUS_LABEL = { running: 'running', 'needs-you': 'needs you', 'needs-trust': 'trust folder?', idle: 'idle', ended: 'ended', failed: 'failed' };
-const RANK = { 'needs-trust': 0, 'needs-you': 0, failed: 1, running: 2, idle: 3, ended: 4 };
-const FILTERS = {
-  all: () => true,
-  active: (st) => st === 'running' || st === 'needs-you' || st === 'needs-trust',
-  needs: (st) => st === 'needs-you' || st === 'needs-trust' || st === 'failed',
-  done: (st) => st === 'idle' || st === 'ended',
-};
+const STATUS_LABEL = { running: 'working', 'needs-you': 'needs you', 'needs-trust': 'trust folder?', review: 'to review', idle: 'idle', ended: 'ended', failed: 'failed' };
+// The list is ordered by what you have to do next.
+const SECTIONS = [
+  { key: 'needs', title: 'Needs you', has: (st) => st === 'needs-you' || st === 'needs-trust' || st === 'failed' },
+  { key: 'review', title: 'To review', has: (st) => st === 'review' },
+  { key: 'working', title: 'Working', has: (st) => st === 'running' },
+  { key: 'idle', title: 'Idle', has: (st) => st === 'idle', collapsed: true },
+  { key: 'ended', title: 'Ended', has: (st) => st === 'ended', collapsed: true },
+];
+const ATTENTION = new Set(['needs-you', 'needs-trust', 'failed', 'review']);
 
-const ui = { state: { sessions: [], inbox: [] }, selected: null, filter: 'all', open: new Set(), detail: null, sending: false };
+const ui = { state: { sessions: [], inbox: [] }, selected: null, open: new Set(), detail: null, sending: false, prev: new Map(), order: [] };
 
 async function api(path, { method = 'GET', body } = {}) {
   const res = await fetch(`/api/${path}`, {
@@ -41,50 +43,44 @@ const describe = (tool, input) => {
 function renderCounts() {
   const s = ui.state.sessions;
   const n = (f) => s.filter((x) => f(x.status)).length;
-  const need = ui.state.inbox.length + n((st) => st === 'needs-trust');
+  const need = ui.state.inbox.length + n((st) => st === 'needs-trust' || st === 'failed');
+  const review = n((st) => st === 'review');
   $('counts').innerHTML = [
     need ? `<span class="st needs-you">${need} need you</span>` : '',
-    `<span class="st running">${n((st) => st === 'running')} running</span>`,
-    n((st) => st === 'failed') ? `<span class="st failed">${n((st) => st === 'failed')} failed</span>` : '',
+    review ? `<span class="st review">${review} to review</span>` : '',
+    `<span class="st running">${n((st) => st === 'running')} working</span>`,
   ].join('');
-  document.title = need ? `(${need}) Workbench` : 'Workbench';
+  document.title = need + review ? `(${need + review}) Workbench` : 'Workbench';
 }
 
-function renderInbox() {
-  const items = ui.state.inbox;
-  const trust = ui.state.sessions.filter((s) => s.status === 'needs-trust');
-  if (!items.length && !trust.length) return void ($('inbox').innerHTML = '');
-  $('inbox').innerHTML = `<div class="inbox"><h2>Needs you</h2>
-    ${trust.map((s) => `<div class="req"><div><span class="who">${esc(s.name)}</span> <span class="dim">asks to trust its folder</span></div>
-      <div class="acts"><button data-trust="${esc(s.name)}" type="button">Trust folder</button></div></div>`).join('')}
-    ${items.map((r) => `<div class="req"><div><span class="who">${esc(r.session ?? r.sessionId.slice(0, 8))}</span> <span class="dim">wants to use ${esc(r.tool)} · ${ago(r.at)}</span></div>
-      <pre>${esc(describe(r.tool, r.input))}</pre>
-      <div class="acts"><button data-deny="${esc(r.id)}" type="button">Deny</button><button class="primary" data-allow="${esc(r.id)}" type="button">Allow</button></div></div>`).join('')}
-  </div>`;
-}
-
-function renderTasks() {
-  const groups = new Map();
-  for (const s of ui.state.sessions) {
-    if (!groups.has(s.task)) groups.set(s.task, []);
-    groups.get(s.task).push(s);
+/** The prompt(s) a session is waiting on, shown under its row in "Needs you". */
+function promptBlock(s) {
+  if (s.status === 'needs-trust') {
+    return `<div class="req"><div class="dim">Claude Code asks to trust this folder before it starts.</div>
+      <div class="acts"><button class="primary" data-trust="${esc(s.name)}" type="button">Trust folder</button></div></div>`;
   }
-  const tasks = [...groups].map(([name, sessions]) => {
-    sessions.sort((a, b) => RANK[a.status] - RANK[b.status] || a.name.localeCompare(b.name));
-    return { name, sessions, status: sessions[0].status, project: sessions[0].project };
-  });
-  tasks.sort((a, b) => RANK[a.status] - RANK[b.status] || a.name.localeCompare(b.name));
-  const shown = tasks.filter((t) => t.sessions.some((s) => FILTERS[ui.filter](s.status)));
-  if (!ui.state.sessions.length) return void ($('tasks').innerHTML = '<p class="dim">No Claude Code sessions in tmux yet. Start one with “+ New session”.</p>');
-  if (!shown.length) return void ($('tasks').innerHTML = '<p class="dim">Nothing matches this filter.</p>');
-  $('tasks').innerHTML = shown.map((t) => {
-    const done = t.sessions.filter((s) => s.status === 'idle' || s.status === 'ended').length;
-    const open = ui.open.has(t.name) || t.status !== 'ended' ? ' open' : '';
-    return `<details class="task" data-task="${esc(t.name)}"${open}>
-      <summary><span class="name">${esc(t.name)}</span><span class="num">${esc(t.project ?? '')}</span>${status(t.status)}<span class="num">${done}/${t.sessions.length}</span></summary>
-      ${t.sessions.map((s) => `<div class="sess${s.name === ui.selected ? ' sel' : ''}" data-sel="${esc(s.name)}" tabindex="0">
-        <span></span><span class="n">${esc(s.name)}</span>${status(s.status)}<span class="num">${ago(s.activeAt)}</span></div>`).join('')}
-    </details>`;
+  return ui.state.inbox.filter((r) => r.session === s.name).map((r) => `<div class="req">
+    <div class="dim">Wants to use ${esc(r.tool)} · ${ago(r.at)}</div><pre>${esc(describe(r.tool, r.input))}</pre>
+    <div class="acts"><button data-deny="${esc(r.id)}" type="button">Deny <kbd>D</kbd></button><button class="primary" data-allow="${esc(r.id)}" type="button">Allow <kbd>A</kbd></button></div></div>`).join('');
+}
+
+function renderList() {
+  const all = ui.state.sessions;
+  if (!all.length) return void ($('list').innerHTML = '<p class="dim">No Claude Code sessions in tmux yet. Start one with “+ New session”.</p>');
+  ui.order = [];
+  $('list').innerHTML = SECTIONS.map((sec) => {
+    const rows = all.filter((s) => sec.has(s.status)).sort((a, b) => b.activeAt.localeCompare(a.activeAt));
+    if (!rows.length) return '';
+    ui.order.push(...rows.map((s) => s.name));
+    const holdsSelected = rows.some((s) => s.name === ui.selected);
+    const open = !sec.collapsed || ui.open.has(sec.key) || holdsSelected ? ' open' : '';
+    return `<details class="sec ${sec.key}" data-sec="${sec.key}"${open}><summary><h2>${esc(sec.title)}</h2><span class="num">${rows.length}</span></summary>
+      ${rows.map((s) => {
+        const line = s.status === 'running' ? (s.activity ? `▸ ${s.activity}` : '') : s.lastMessage ?? '';
+        return `<div class="sess${s.name === ui.selected ? ' sel' : ''}${ATTENTION.has(s.status) ? ' unread' : ''}" data-sel="${esc(s.name)}" tabindex="0">
+          ${status(s.status)}<span class="n"><span class="dim">${esc(s.task)} ›</span> ${esc(s.name.replace(/^cc-/, ''))}</span>
+          <span class="line">${esc(line)}</span><span class="num">${ago(s.activeAt)}</span></div>${sec.key === 'needs' ? promptBlock(s) : ''}`;
+      }).join('')}</details>`;
   }).join('');
 }
 
@@ -112,17 +108,34 @@ function renderChat() {
 
 function render() {
   renderCounts();
-  renderInbox();
-  renderTasks();
+  renderList();
   renderChat();
   document.querySelector('.app').classList.toggle('chatting', !!ui.selected);
 }
 
 // ---------- data ----------
 
+function notifyChanges() {
+  for (const s of ui.state.sessions) {
+    const before = ui.prev.get(s.name);
+    if (before && before !== s.status && ATTENTION.has(s.status) && !ATTENTION.has(before)) {
+      const what = s.status === 'review' ? 'finished' : s.status === 'failed' ? 'failed' : 'needs you';
+      if (document.hidden && window.Notification?.permission === 'granted') {
+        const n = new Notification(`${s.task} › ${s.name.replace(/^cc-/, '')} ${what}`, { body: s.activity ?? s.lastMessage ?? '', tag: s.name });
+        n.onclick = () => { window.focus(); ui.selected = s.name; refresh(); };
+      }
+    }
+    ui.prev.set(s.name, s.status);
+  }
+}
+
 async function refresh() {
   try {
     ui.state = await api('state');
+    notifyChanges();
+    // Looking at a finished session counts as reviewing it.
+    const sel = ui.state.sessions.find((s) => s.name === ui.selected);
+    if (sel?.status === 'review' && !document.hidden) api(`sessions/${encodeURIComponent(sel.name)}/reviewed`, { method: 'POST', body: {} }).catch(() => {});
     if (ui.selected) ui.detail = await api(`sessions/${encodeURIComponent(ui.selected)}`).catch(() => null);
     $('conn').textContent = '';
   } catch (err) {
@@ -152,21 +165,33 @@ document.addEventListener('click', (e) => {
   else if (t.dataset.key) act(() => api(`sessions/${encodeURIComponent(ui.selected)}/key`, { method: 'POST', body: { key: t.dataset.key } }));
   else if (t.hasAttribute('data-kill')) act(async () => { await api(`sessions/${encodeURIComponent(ui.selected)}`, { method: 'DELETE' }); ui.selected = null; });
   else if (t.hasAttribute('data-back')) { ui.selected = null; render(); }
-  else if (t.dataset.f) {
-    ui.filter = t.dataset.f;
-    document.querySelectorAll('#filters button').forEach((b) => b.classList.toggle('on', b === t));
-    renderTasks();
-  }
 });
+
+// Ask once for notification permission, on the first click (browsers require a gesture).
+document.addEventListener('click', () => {
+  if (window.Notification?.permission === 'default') Notification.requestPermission().catch(() => {});
+}, { once: true });
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && e.target.classList?.contains('sess')) e.target.click();
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || $('new-dialog').open;
+  if (!typing && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    const first = ui.state.inbox[0];
+    if (e.key === 'j' || e.key === 'k') {
+      const i = ui.order.indexOf(ui.selected);
+      const next = ui.order[Math.max(0, Math.min(ui.order.length - 1, i < 0 ? 0 : i + (e.key === 'j' ? 1 : -1)))];
+      if (next) { ui.selected = next; ui.detail = null; refresh(); }
+    } else if ((e.key === 'a' || e.key === 'd') && first) {
+      act(() => api(`inbox/${first.id}`, { method: 'POST', body: { behavior: e.key === 'a' ? 'allow' : 'deny' } }));
+    } else if (e.key === 'n') { e.preventDefault(); $('new-session').click(); }
+    else if (e.key === '/' && $('msg') && !$('msg').disabled) { e.preventDefault(); $('msg').focus(); }
+  }
   if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && e.target.id === 'msg') $('send').requestSubmit();
 });
 
 document.addEventListener('toggle', (e) => {
-  const name = e.target.dataset?.task;
-  if (name) e.target.open ? ui.open.add(name) : ui.open.delete(name);
+  const key = e.target.dataset?.sec;
+  if (key) e.target.open ? ui.open.add(key) : ui.open.delete(key);
 }, true);
 
 document.addEventListener('submit', (e) => {

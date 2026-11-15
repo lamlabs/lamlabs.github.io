@@ -60,3 +60,15 @@ test('mergeStatus prefers hooks but trusts a visible prompt or a quiet screen', 
   assert.equal(mergeStatus({ status: 'idle', at: now }, 'needs-trust', now), 'needs-trust');
   assert.equal(mergeStatus({ status: 'running', at: now }, 'ended', now), 'ended');
 });
+
+test('parseTranscript turns Claude Code notes into one line', () => {
+  const lines = [
+    { type: 'user', message: { content: '<task-notification>\n<task-id>x</task-id>\n<summary>Background command "sleep" completed (exit code 0)</summary>\n</task-notification>' } },
+    { type: 'user', message: { content: '<local-command-stdout>noise</local-command-stdout>' } },
+    { type: 'user', message: { content: 'a < b, is it?' } },
+  ];
+  assert.deepEqual(
+    parseTranscript(lines.map((l) => JSON.stringify(l)).join('\n')).map(({ role, text }) => [role, text]),
+    [['tool', 'Background task: Background command "sleep" completed (exit code 0)'], ['user', 'a < b, is it?']],
+  );
+});

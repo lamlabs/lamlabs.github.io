@@ -20,6 +20,13 @@ const SETTLES = new Set(['PostToolUse', 'PostToolUseFailure', 'Stop', 'StopFailu
 
 const sameInput = (a, b) => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 
+/** One short line for a tool call, e.g. "Bash npm test". */
+export function describeCall(tool, input) {
+  const i = input ?? {};
+  const detail = i.command ?? i.file_path ?? i.path ?? i.pattern ?? i.url ?? i.description ?? '';
+  return `${tool ?? ''}${detail ? ` ${String(detail).split('\n')[0].slice(0, 80)}` : ''}`.trim();
+}
+
 export class Hub {
   /** @param {{ holdMs?: number, now?: () => number }} opts holdMs must stay below the hook timeout. */
   constructor({ holdMs = 590_000, now = Date.now } = {}) {
@@ -41,12 +48,19 @@ export class Hub {
     if (!id || !name) return Promise.resolve({});
 
     const prev = this.sessions.get(id);
-    const s = prev ?? { id, cwd: null, transcriptPath: null, pane: null, status: 'idle', lastTool: null, at: null };
+    const s = prev ?? { id, cwd: null, transcriptPath: null, pane: null, status: 'idle', lastTool: null, activity: null, lastMessage: null, stoppedAt: null, at: null };
     if (pane) s.pane = pane;
     s.cwd = event.cwd ?? s.cwd;
     s.transcriptPath = event.transcript_path ?? s.transcriptPath;
     s.at = this.now();
     if (event.tool_name) s.lastTool = event.tool_name;
+    if (name === 'PreToolUse' || name === 'PermissionRequest') s.activity = describeCall(event.tool_name, event.tool_input);
+    if (name === 'UserPromptSubmit') s.activity = 'Thinking';
+    if (name === 'Stop' || name === 'StopFailure') {
+      s.activity = null;
+      s.stoppedAt = this.now();
+      if (typeof event.last_assistant_message === 'string') s.lastMessage = event.last_assistant_message.trim().split('\n')[0].slice(0, 160);
+    }
     this.sessions.set(id, s);
 
     if (SETTLES.has(name)) this.#settle(id, name === 'PostToolUse' || name === 'PostToolUseFailure' ? event : null);

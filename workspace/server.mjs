@@ -20,6 +20,10 @@ const MAX_FILE = 512 * 1024;
 // Required on every /api call from the page; served inside index.html at start.
 const TOKEN = process.env.WORKBENCH_TOKEN ?? randomUUID();
 const hub = new Hub();
+// When each session was last looked at. A session that finished a turn after that is "review".
+const reviewedAt = new Map();
+const withReview = (status, live, name) =>
+  status === 'idle' && live?.stoppedAt && live.stoppedAt > (reviewedAt.get(name) ?? 0) ? 'review' : status;
 
 const run = (cmd, args, opts = {}) =>
   new Promise((resolve, reject) =>
@@ -112,7 +116,9 @@ async function listSessions() {
         task: task || project || 'Other',
         pane,
         claudeId: live?.id ?? (id || null),
-        status: mergeStatus(live, screenStatus(screen, dead === '1'), Date.now()),
+        status: withReview(mergeStatus(live, screenStatus(screen, dead === '1'), Date.now()), live, name),
+        activity: live?.activity ?? null,
+        lastMessage: live?.lastMessage ?? null,
         createdAt: new Date(Number(created) * 1000).toISOString(),
         activeAt: new Date(Number(activity) * 1000).toISOString(),
       };
@@ -217,6 +223,7 @@ const routes = [
     if (!hub.decide(m[1], body.behavior)) throw new HttpError(404, 'Already answered');
   }],
   ['POST', /^\/api\/sessions\/([^/]+)\/trust$/, (m) => trustFolder(m[1])],
+  ['POST', /^\/api\/sessions\/([^/]+)\/reviewed$/, (m) => void reviewedAt.set(m[1], Date.now())],
   ['POST', /^\/api\/sessions$/, (m, url, body) => createSession(body)],
   ['GET', /^\/api\/sessions\/([^/]+)$/, (m) => sessionDetail(m[1])],
   ['POST', /^\/api\/sessions\/([^/]+)\/send$/, (m, url, body) => sendText(m[1], body.text)],

@@ -70,3 +70,15 @@ test('events without a session are ignored', async () => {
   assert.deepEqual(await hub.handle({ hook_event_name: 'Stop' }), {});
   assert.equal(hub.sessions.size, 0);
 });
+
+test('activity and last message come from the hooks', async () => {
+  let t = 1000;
+  const hub = new Hub({ now: () => t });
+  await hub.handle(ev('UserPromptSubmit'));
+  assert.equal(hub.session('s1').activity, 'Thinking');
+  await hub.handle(ev('PreToolUse', bash('npm test\nsecond line')));
+  assert.equal(hub.session('s1').activity, 'Bash npm test');
+  t = 2000;
+  await hub.handle(ev('Stop', { last_assistant_message: 'Fixed the null check.\nMore detail.' }));
+  assert.deepEqual([hub.session('s1').activity, hub.session('s1').lastMessage, hub.session('s1').stoppedAt], [null, 'Fixed the null check.', 2000]);
+});

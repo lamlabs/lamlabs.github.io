@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { githubSlug, parseGitStatus, parseTranscript, safeJoin, screenStatus, slug } from '../lib.mjs';
+import { githubSlug, mergeStatus, parseGitStatus, parseTranscript, safeJoin, screenStatus, slug } from '../lib.mjs';
 
 test('safeJoin keeps paths inside the root', () => {
   assert.equal(safeJoin('/p', 'src/a.ts'), '/p/src/a.ts');
@@ -35,7 +35,8 @@ test('screenStatus reads the Claude Code screen', () => {
   assert.equal(screenStatus('Do you want to proceed?\n❯ 1. Yes\n  2. No', false), 'needs-you');
   assert.equal(screenStatus('Do you want to proceed?\n❯ 1. Yes' + '\n'.repeat(40), false), 'needs-you');
   assert.equal(screenStatus('> ', false), 'idle');
-  assert.equal(screenStatus('anything', true), 'exited');
+  assert.equal(screenStatus('anything', true), 'ended');
+  assert.equal(screenStatus(' Quick safety check: Is this a project you created or one you trust?', false), 'needs-trust');
 });
 
 test('parseGitStatus counts changes and ahead/behind', () => {
@@ -47,4 +48,15 @@ test('githubSlug reads https and ssh remotes', () => {
   assert.equal(githubSlug('https://github.com/acme/app.git\n'), 'acme/app');
   assert.equal(githubSlug('git@github.com:acme/app.git'), 'acme/app');
   assert.equal(githubSlug('https://gitlab.com/acme/app'), null);
+});
+
+test('mergeStatus prefers hooks but trusts a visible prompt or a quiet screen', () => {
+  const now = 100_000;
+  assert.equal(mergeStatus(null, 'working', now), 'running');
+  assert.equal(mergeStatus(null, 'idle', now), 'idle');
+  assert.equal(mergeStatus({ status: 'running', at: now - 1000 }, 'idle', now), 'running');
+  assert.equal(mergeStatus({ status: 'running', at: now - 20_000 }, 'idle', now), 'idle');
+  assert.equal(mergeStatus({ status: 'running', at: now }, 'needs-you', now), 'needs-you');
+  assert.equal(mergeStatus({ status: 'idle', at: now }, 'needs-trust', now), 'needs-trust');
+  assert.equal(mergeStatus({ status: 'running', at: now }, 'ended', now), 'ended');
 });

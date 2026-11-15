@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Workspace: a small local dashboard for Claude Code sessions on this machine.
+// Workbench: a small local dashboard for Claude Code sessions on this machine.
 // No dependencies. Uses git, tmux, claude and (optionally) gh from your PATH.
 import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -8,7 +8,8 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { PREFIX, githubSlug, parseGitStatus, parseTranscript, safeJoin, screenStatus, slug } from './lib.mjs';
+import { Hub } from './hub.mjs';
+import { PREFIX, githubSlug, mergeStatus, parseGitStatus, parseTranscript, safeJoin, screenStatus, slug } from './lib.mjs';
 
 const PORT = Number(process.env.PORT ?? 4747);
 const ROOT = path.resolve(process.env.PROJECTS_ROOT ?? path.join(os.homedir(), 'code'));
@@ -16,6 +17,9 @@ const CLAUDE = process.env.CLAUDE_BIN ?? 'claude';
 const CLAUDE_HOME = process.env.CLAUDE_CONFIG_DIR ?? path.join(os.homedir(), '.claude');
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), 'public');
 const MAX_FILE = 512 * 1024;
+// Required on every /api call from the page; served inside index.html at start.
+const TOKEN = process.env.WORKBENCH_TOKEN ?? randomUUID();
+const hub = new Hub();
 
 const run = (cmd, args, opts = {}) =>
   new Promise((resolve, reject) =>
@@ -80,26 +84,6 @@ async function projectDiff(name) {
   return { diff, untracked: untracked.split('\n').filter(Boolean) };
 }
 
-/** Pull requests and recent CI runs through the gh CLI, if it is installed and logged in. */
-async function projectGithub(name) {
-  const p = (await listProjects()).find((x) => x.name === name);
-  if (!p?.github) return { available: false, reason: 'No GitHub remote' };
-  // REST through `gh api`, so it works wherever gh is logged in.
-  const [prs, runs] = await Promise.all([
-    run('gh', ['api', `repos/${p.github}/pulls?state=open&per_page=20`]),
-    run('gh', ['api', `repos/${p.github}/actions/runs?per_page=8`]),
-  ]).catch((err) => [null, err]);
-  if (prs === null) return { available: false, reason: `gh: ${runs.message.split('\n')[0]}` };
-  return {
-    available: true,
-    repo: p.github,
-    prs: JSON.parse(prs).map((x) => ({ number: x.number, title: x.title, url: x.html_url, author: x.user?.login, isDraft: x.draft, updatedAt: x.updated_at })),
-    runs: JSON.parse(runs).workflow_runs.map((r) => ({
-      title: r.display_title, status: r.status, conclusion: r.conclusion, url: r.html_url, workflow: r.name, branch: r.head_branch, createdAt: r.created_at,
-    })),
-  };
-}
-
 // ---------- sessions (tmux + claude) ----------
 
 const tmux = (...args) => run('tmux', args);
@@ -109,7 +93,7 @@ const target = (name) => `=${name}:`;
 async function listSessions() {
   // tmux turns tabs in format output into "_", so use a printable separator.
   const SEP = '|~|';
-  const fmt = ['#{session_name}', '#{session_created}', '#{session_activity}', '#{@cc_id}', '#{@cc_project}', '#{pane_dead}'].join(SEP);
+  const fmt = ['#{session_name}', '#{session_created}', '#{session_activity}', '#{@cc_id}', '#{@cc_project}', '#{pane_dead}', '#{pane_id}', '#{@cc_task}'].join(SEP);
   const out = await tryRun('tmux', ['list-panes', '-a', '-F', fmt]);
   if (!out) return [];
   const seen = new Set();
@@ -119,13 +103,16 @@ async function listSessions() {
     .map((l) => l.split(SEP))
     .filter(([name]) => !seen.has(name) && seen.add(name));
   return Promise.all(
-    rows.map(async ([name, created, activity, id, project, dead]) => {
+    rows.map(async ([name, created, activity, id, project, dead, pane, task]) => {
       const screen = (await tryRun('tmux', ['capture-pane', '-p', '-t', target(name)])) ?? '';
+      const live = hub.byPane(pane) ?? (id ? hub.session(id) : null);
       return {
         name,
         project,
-        claudeId: id || null,
-        status: screenStatus(screen, dead === '1'),
+        task: task || project || 'Other',
+        pane,
+        claudeId: live?.id ?? (id || null),
+        status: mergeStatus(live, screenStatus(screen, dead === '1'), Date.now()),
         createdAt: new Date(Number(created) * 1000).toISOString(),
         activeAt: new Date(Number(activity) * 1000).toISOString(),
       };
@@ -133,7 +120,7 @@ async function listSessions() {
   );
 }
 
-async function createSession({ project, name, prompt }) {
+async function createSession({ project, task, name, prompt }) {
   const dir = projectDir(project);
   const sessionName = PREFIX + slug(name || project);
   if ((await listSessions()).some((s) => s.name === sessionName)) throw new HttpError(409, `${sessionName} already exists`);
@@ -148,6 +135,7 @@ async function createSession({ project, name, prompt }) {
     'new-session', '-d', '-s', sessionName, '-c', dir, '-x', '200', '-y', '50', CLAUDE, ...args.map((a) => (a === ';' ? ' ;' : a)),
     ';', 'set-option', '-t', t, '@cc_id', id,
     ';', 'set-option', '-t', t, '@cc_project', project,
+    ';', 'set-option', '-t', t, '@cc_task', slug(task || project) || project,
     ';', 'set-option', '-t', t, 'remain-on-exit', 'on',
   );
   return { name: sessionName, claudeId: id };
@@ -177,7 +165,9 @@ async function sessionDetail(name) {
 }
 
 async function sendText(name, text) {
-  await findSession(name);
+  const s = await findSession(name);
+  // Enter on an open dialog would pick its default option instead of chatting.
+  if (s.status === 'needs-you' || s.status === 'needs-trust') throw new HttpError(409, 'The session is showing a prompt. Answer it first.');
   if (!text?.trim()) throw new HttpError(400, 'Empty message');
   // Paste as one bracketed paste so newlines do not submit early, then press Enter.
   const buffer = `cc-${randomUUID()}`;
@@ -187,11 +177,26 @@ async function sendText(name, text) {
   await tmux('send-keys', '-t', target(name), 'Enter');
 }
 
-const KEYS = new Set(['Enter', 'Escape', 'Up', 'Down', 'Tab', 'BTab', '1', '2', '3']);
+const KEYS = new Set(['Escape', 'C-c']);
 async function sendKey(name, key) {
   await findSession(name);
   if (!KEYS.has(key)) throw new HttpError(400, 'Key not allowed');
   await tmux('send-keys', '-t', target(name), key);
+}
+
+async function trustFolder(name) {
+  const s = await findSession(name);
+  if (s.status !== 'needs-trust') throw new HttpError(409, 'No folder trust prompt is showing');
+  await tmux('send-keys', '-t', target(name), 'Down', 'Enter');
+}
+
+async function state() {
+  const sessions = await listSessions();
+  const byClaudeId = new Map(sessions.map((s) => [s.claudeId, s.name]));
+  return {
+    sessions,
+    inbox: hub.inbox().map((i) => ({ ...i, session: byClaudeId.get(i.sessionId) ?? null })),
+  };
 }
 
 async function killSession(name) {
@@ -206,8 +211,12 @@ const routes = [
   ['GET', /^\/api\/projects\/([^/]+)\/files$/, (m) => listFiles(m[1])],
   ['GET', /^\/api\/projects\/([^/]+)\/file$/, (m, url) => readProjectFile(m[1], url.searchParams.get('path'))],
   ['GET', /^\/api\/projects\/([^/]+)\/diff$/, (m) => projectDiff(m[1])],
-  ['GET', /^\/api\/projects\/([^/]+)\/github$/, (m) => projectGithub(m[1])],
+  ['GET', /^\/api\/state$/, () => state()],
   ['GET', /^\/api\/sessions$/, () => listSessions()],
+  ['POST', /^\/api\/inbox\/([^/]+)$/, (m, url, body) => {
+    if (!hub.decide(m[1], body.behavior)) throw new HttpError(404, 'Already answered');
+  }],
+  ['POST', /^\/api\/sessions\/([^/]+)\/trust$/, (m) => trustFolder(m[1])],
   ['POST', /^\/api\/sessions$/, (m, url, body) => createSession(body)],
   ['GET', /^\/api\/sessions\/([^/]+)$/, (m) => sessionDetail(m[1])],
   ['POST', /^\/api\/sessions\/([^/]+)\/send$/, (m, url, body) => sendText(m[1], body.text)],
@@ -245,15 +254,26 @@ export const server = createServer(async (req, res) => {
     }
 
     const url = new URL(req.url, `http://${req.headers.host}`);
+
+    // Claude Code hooks. A PermissionRequest is held open until it is answered.
+    if (url.pathname === '/api/hooks' && req.method === 'POST') {
+      const event = await readBody(req);
+      const answer = hub.handle(event, { pane: req.headers['x-tmux-pane'] || null });
+      res.on('close', () => !res.writableFinished && answer.cancel?.());
+      return send(200, await answer);
+    }
+
     if (!url.pathname.startsWith('/api/')) {
       const file = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
       const full = safeJoin(PUBLIC, file);
-      const body = full && (await readFile(full).catch(() => null));
+      let body = full && (await readFile(full).catch(() => null));
       if (!body) throw new HttpError(404, 'Not found');
+      if (file === 'index.html') body = body.toString('utf8').replace('__WORKBENCH_TOKEN__', TOKEN);
       const type = full.endsWith('.html') ? 'text/html; charset=utf-8' : full.endsWith('.js') ? 'text/javascript' : 'text/css';
       return send(200, body, type);
     }
 
+    if (req.headers['x-workbench-token'] !== TOKEN) throw new HttpError(401, 'Reload the page');
     for (const [method, pattern, handler] of routes) {
       const m = url.pathname.match(pattern);
       if (!m || method !== req.method) continue;
@@ -270,6 +290,6 @@ export const server = createServer(async (req, res) => {
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   server.listen(PORT, '127.0.0.1', () => {
-    console.log(`Workspace on http://localhost:${PORT}  (projects in ${ROOT})`);
+    console.log(`Workbench on http://localhost:${PORT}  (projects in ${ROOT})`);
   });
 }

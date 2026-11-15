@@ -57,9 +57,10 @@ export function parseTranscript(jsonl) {
  * here if a Claude Code update changes them.
  */
 export function screenStatus(screen, paneDead) {
-  if (paneDead) return 'exited';
+  if (paneDead) return 'ended';
   // capture-pane pads the screen with blank lines, so trim before taking the bottom.
   const tail = screen.trimEnd().split('\n').slice(-25).join('\n');
+  if (/trust this folder|Is this a project you created/i.test(tail)) return 'needs-trust';
   if (/Do you want to|Would you like to|❯ 1\. Yes/i.test(tail)) return 'needs-you';
   if (/esc to interrupt/i.test(tail)) return 'working';
   return 'idle';
@@ -82,4 +83,16 @@ export function parseGitStatus(text) {
 export function githubSlug(remote) {
   const m = String(remote).trim().match(/github\.com[:/]([^/]+\/[^/]+?)(?:\.git)?$/);
   return m ? m[1] : null;
+}
+
+/**
+ * Combine hook status (exact, but lost on restart and silent after Esc) with
+ * the screen (always there, but a heuristic). `live` is the hub's session or null.
+ */
+export function mergeStatus(live, screen, now) {
+  if (screen === 'ended' || screen === 'needs-trust' || screen === 'needs-you') return screen;
+  if (!live) return screen === 'working' ? 'running' : screen;
+  if (live.status === 'running' && screen === 'idle' && now - live.at > 15_000) return 'idle';
+  if (live.status === 'needs-you' && screen === 'idle' && now - live.at > 15_000) return 'idle';
+  return live.status;
 }

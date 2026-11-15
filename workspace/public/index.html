@@ -3,31 +3,44 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Workspace</title>
+<meta name="workbench-token" content="__WORKBENCH_TOKEN__">
+<title>Workbench</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<header class="top">
+  <strong>Workbench</strong>
+  <span id="counts" class="counts"></span>
+  <span id="conn" class="dim"></span>
+  <button id="new-session" type="button">+ New session</button>
+</header>
 <div class="app">
-  <aside class="side" id="side">
-    <div class="brand">Workspace</div>
-    <section>
-      <div class="side-head"><span>Sessions</span><button class="link" id="new-session" type="button">+ New</button></div>
-      <ul id="sessions" class="list"></ul>
-    </section>
-    <section>
-      <div class="side-head"><span>Projects</span></div>
-      <ul id="projects" class="list"></ul>
-    </section>
-  </aside>
-  <main id="main"><p class="dim pad">Pick a project or a session.</p></main>
+  <section class="left">
+    <div id="inbox"></div>
+    <div class="bar">
+      <h2>Tasks</h2>
+      <div class="filters" id="filters">
+        <button data-f="all" class="on" type="button">All</button>
+        <button data-f="active" type="button">Active</button>
+        <button data-f="needs" type="button">Needs you</button>
+        <button data-f="done" type="button">Done</button>
+      </div>
+    </div>
+    <div id="tasks"></div>
+  </section>
+  <section class="right" id="chat">
+    <p class="dim pad">Pick a session on the left.</p>
+  </section>
 </div>
 
 <dialog id="new-dialog">
   <form method="dialog" id="new-form">
     <h2>New Claude Code session</h2>
-    <label>Project <select name="project" required></select></label>
-    <label>Name <input name="name" placeholder="defaults to the project name"></label>
-    <label>First prompt <textarea name="prompt" rows="4" placeholder="optional"></textarea></label>
+    <label>Project <select id="f-project" name="project" required></select></label>
+    <label>Task <input id="f-task" name="task" list="task-list" placeholder="defaults to the project"></label>
+    <datalist id="task-list"></datalist>
+    <label>Name <input id="f-name" name="name" placeholder="e.g. fix, review"></label>
+    <label>First prompt <textarea id="f-prompt" name="prompt" rows="4" placeholder="optional"></textarea></label>
     <p class="error" id="new-error"></p>
     <div class="row end">
       <button value="cancel" formnovalidate type="submit" class="ghost">Cancel</button>

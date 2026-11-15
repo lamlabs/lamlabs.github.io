@@ -1,0 +1,157 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4747/api/hooks",
+            "timeout": 5,
+            "headers": {
+              "X-Tmux-Pane": "$TMUX_PANE"
+            },
+            "allowedEnvVars": [
+              "TMUX_PANE"
+            ]
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4747/api/hooks",
+            "timeout": 5,
+            "headers": {
+              "X-Tmux-Pane": "$TMUX_PANE"
+            },
+            "allowedEnvVars": [
+              "TMUX_PANE"
+            ]
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4747/api/hooks",
+            "timeout": 5,
+            "headers": {
+              "X-Tmux-Pane": "$TMUX_PANE"
+            },
+            "allowedEnvVars": [
+              "TMUX_PANE"
+            ]
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4747/api/hooks",
+            "timeout": 5,
+            "headers": {
+              "X-Tmux-Pane": "$TMUX_PANE"
+            },
+            "allowedEnvVars": [
+              "TMUX_PANE"
+            ]
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4747/api/hooks",
+            "timeout": 5,
+            "headers": {
+              "X-Tmux-Pane": "$TMUX_PANE"
+            },
+            "allowedEnvVars": [
+              "TMUX_PANE"
+            ]
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4747/api/hooks",
+            "timeout": 5,
+            "headers": {
+              "X-Tmux-Pane": "$TMUX_PANE"
+            },
+            "allowedEnvVars": [
+              "TMUX_PANE"
+            ]
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4747/api/hooks",
+            "timeout": 5,
+            "headers": {
+              "X-Tmux-Pane": "$TMUX_PANE"
+            },
+            "allowedEnvVars": [
+              "TMUX_PANE"
+            ]
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4747/api/hooks",
+            "timeout": 5,
+            "headers": {
+              "X-Tmux-Pane": "$TMUX_PANE"
+            },
+            "allowedEnvVars": [
+              "TMUX_PANE"
+            ]
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "http",
+            "url": "http://127.0.0.1:4747/api/hooks",
+            "timeout": 600,
+            "headers": {
+              "X-Tmux-Pane": "$TMUX_PANE"
+            },
+            "allowedEnvVars": [
+              "TMUX_PANE"
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

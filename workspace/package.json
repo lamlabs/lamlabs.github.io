@@ -1,11 +1,11 @@
 {
-  "name": "workspace",
-  "version": "0.2.0",
+  "name": "workbench",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "description": "Local dashboard for Claude Code sessions, projects, and their GitHub status.",
   "engines": { "node": ">=22" },
-  "bin": { "workspace": "server.mjs" },
+  "bin": { "workbench": "server.mjs" },
   "scripts": {
     "start": "node server.mjs",
     "test": "node --test test/*.test.mjs"
